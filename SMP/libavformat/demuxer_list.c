@@ -79,7 +79,6 @@ static const AVInputFormat *demuxer_list[] = {
     &ff_codec2_demuxer,
     &ff_codec2raw_demuxer,
     &ff_concat_demuxer,
-    &ff_dash_demuxer,
     &ff_data_demuxer,
     &ff_daud_demuxer,
     &ff_dcstr_demuxer,
@@ -346,6 +345,4 @@ static const AVInputFormat *demuxer_list[] = {
     &ff_image_xbm_pipe_demuxer,
     &ff_image_xpm_pipe_demuxer,
     &ff_image_xwd_pipe_demuxer,
-    &ff_libgme_demuxer,
-    &ff_libmodplug_demuxer,
     NULL };

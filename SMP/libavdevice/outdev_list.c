@@ -19,6 +19,5 @@
  * THE SOFTWARE.
  */
 static const AVOutputFormat *outdev_list[] = {
-    &ff_opengl_muxer,
     &ff_sdl2_muxer,
     NULL };

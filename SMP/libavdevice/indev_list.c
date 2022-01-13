@@ -23,5 +23,4 @@ static const AVInputFormat *indev_list[] = {
     &ff_gdigrab_demuxer,
     &ff_lavfi_demuxer,
     &ff_vfwcap_demuxer,
-    &ff_libcdio_demuxer,
     NULL };

@@ -3,32 +3,12 @@ SETLOCAL EnableDelayedExpansion
 
 SET UPSTREAMURL=https://github.com/ShiftMediaProject
 SET DEPENDENCIES=( ^
-bzip2, ^
-fontconfig, ^
-freetype2, ^
-fribidi, ^
-game-music-emu, ^
-gnutls, ^
+fdk-aac, ^
 lame, ^
-libass, ^
-libbluray, ^
-libcdio, ^
-libcdio-paranoia, ^
-libiconv, ^
-libgcrypt, ^
-libilbc, ^
-liblzma, ^
-libssh, ^
-libxml2, ^
 libvpx, ^
-mfx_dispatch, ^
-modplug, ^
 opus, ^
 sdl, ^
-soxr, ^
-speex, ^
 theora, ^
-vorbis, ^
 x264, ^
 x265, ^
 xvid, ^
