@@ -81,7 +81,6 @@ static const char *const opt_name_copy_prior_start[]          = {"copypriorss", 
 static const char *const opt_name_filters[]                   = {"filter", "af", "vf", NULL};
 static const char *const opt_name_filter_scripts[]            = {"filter_script", NULL};
 static const char *const opt_name_reinit_filters[]            = {"reinit_filter", NULL};
-static const char *const opt_name_fix_sub_duration[]          = {"fix_sub_duration", NULL};
 static const char *const opt_name_canvas_sizes[]              = {"canvas_size", NULL};
 static const char *const opt_name_pass[]                      = {"pass", NULL};
 static const char *const opt_name_max_muxing_queue_size[]     = {"max_muxing_queue_size", NULL};
@@ -134,7 +133,6 @@ float audio_drift_threshold = 0.1;
 float dts_delta_threshold   = 10;
 float dts_error_threshold   = 3600*30;
 
-int audio_volume      = 256;
 int audio_sync_method = 0;
 int video_sync_method = VSYNC_AUTO;
 float frame_drop_threshold = 0;
@@ -278,12 +276,6 @@ static int opt_video_codec(void *optctx, const char *opt, const char *arg)
 {
     OptionsContext *o = optctx;
     return parse_option(o, "codec:v", arg, options);
-}
-
-static int opt_subtitle_codec(void *optctx, const char *opt, const char *arg)
-{
-    OptionsContext *o = optctx;
-    return parse_option(o, "codec:s", arg, options);
 }
 
 static int opt_data_codec(void *optctx, const char *opt, const char *arg)
@@ -736,7 +728,6 @@ static void add_input_streams(OptionsContext *o, AVFormatContext *ic)
 
         if ((o->video_disable && ist->st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) ||
             (o->audio_disable && ist->st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) ||
-            (o->subtitle_disable && ist->st->codecpar->codec_type == AVMEDIA_TYPE_SUBTITLE) ||
             (o->data_disable && ist->st->codecpar->codec_type == AVMEDIA_TYPE_DATA))
                 ist->user_set_discard = AVDISCARD_ALL;
 
@@ -797,12 +788,10 @@ static void add_input_streams(OptionsContext *o, AVFormatContext *ic)
             MATCH_PER_STREAM_OPT(guess_layout_max, i, ist->guess_layout_max, ic, st);
             guess_input_channel_layout(ist);
             break;
-        case AVMEDIA_TYPE_DATA:
-        case AVMEDIA_TYPE_SUBTITLE: {
+        case AVMEDIA_TYPE_DATA:{
             char *canvas_size = NULL;
             if(!ist->dec)
                 ist->dec = avcodec_find_decoder(par->codec_id);
-            MATCH_PER_STREAM_OPT(fix_sub_duration, i, ist->fix_sub_duration, ic, st);
             MATCH_PER_STREAM_OPT(canvas_sizes, str, canvas_size, ic, st);
             if (canvas_size &&
                 av_parse_video_size(&ist->dec_ctx->width, &ist->dec_ctx->height, canvas_size) < 0) {
@@ -912,7 +901,6 @@ static int open_input_file(OptionsContext *o, const char *filename)
     const AVDictionaryEntry *e = NULL;
     char *   video_codec_name = NULL;
     char *   audio_codec_name = NULL;
-    char *subtitle_codec_name = NULL;
     char *    data_codec_name = NULL;
     int scan_all_pmts_set = 0;
 
@@ -983,21 +971,17 @@ static int open_input_file(OptionsContext *o, const char *filename)
 
     MATCH_PER_TYPE_OPT(codec_names, str,    video_codec_name, ic, "v");
     MATCH_PER_TYPE_OPT(codec_names, str,    audio_codec_name, ic, "a");
-    MATCH_PER_TYPE_OPT(codec_names, str, subtitle_codec_name, ic, "s");
     MATCH_PER_TYPE_OPT(codec_names, str,     data_codec_name, ic, "d");
 
     if (video_codec_name)
         ic->video_codec    = find_codec_or_die(video_codec_name   , AVMEDIA_TYPE_VIDEO   , 0);
     if (audio_codec_name)
         ic->audio_codec    = find_codec_or_die(audio_codec_name   , AVMEDIA_TYPE_AUDIO   , 0);
-    if (subtitle_codec_name)
-        ic->subtitle_codec = find_codec_or_die(subtitle_codec_name, AVMEDIA_TYPE_SUBTITLE, 0);
     if (data_codec_name)
         ic->data_codec     = find_codec_or_die(data_codec_name    , AVMEDIA_TYPE_DATA    , 0);
 
     ic->video_codec_id     = video_codec_name    ? ic->video_codec->id    : AV_CODEC_ID_NONE;
     ic->audio_codec_id     = audio_codec_name    ? ic->audio_codec->id    : AV_CODEC_ID_NONE;
-    ic->subtitle_codec_id  = subtitle_codec_name ? ic->subtitle_codec->id : AV_CODEC_ID_NONE;
     ic->data_codec_id      = data_codec_name     ? ic->data_codec->id     : AV_CODEC_ID_NONE;
 
     ic->flags |= AVFMT_FLAG_NONBLOCK;
@@ -1241,7 +1225,7 @@ static int choose_encoder(OptionsContext *o, AVFormatContext *s, OutputStream *o
     enum AVMediaType type = ost->st->codecpar->codec_type;
     char *codec_name = NULL;
 
-    if (type == AVMEDIA_TYPE_VIDEO || type == AVMEDIA_TYPE_AUDIO || type == AVMEDIA_TYPE_SUBTITLE) {
+    if (type == AVMEDIA_TYPE_VIDEO || type == AVMEDIA_TYPE_AUDIO) {
         MATCH_PER_STREAM_OPT(codec_names, str, codec_name, s, ost->st);
         if (!codec_name) {
             ost->st->codecpar->codec_id = av_guess_codec(s->oformat, NULL, s->url,
@@ -1819,33 +1803,6 @@ static OutputStream *new_attachment_stream(OptionsContext *o, AVFormatContext *o
     return ost;
 }
 
-static OutputStream *new_subtitle_stream(OptionsContext *o, AVFormatContext *oc, int source_index)
-{
-    AVStream *st;
-    OutputStream *ost;
-    AVCodecContext *subtitle_enc;
-
-    ost = new_output_stream(o, oc, AVMEDIA_TYPE_SUBTITLE, source_index);
-    st  = ost->st;
-    subtitle_enc = ost->enc_ctx;
-
-    subtitle_enc->codec_type = AVMEDIA_TYPE_SUBTITLE;
-
-    MATCH_PER_STREAM_OPT(copy_initial_nonkeyframes, i, ost->copy_initial_nonkeyframes, oc, st);
-
-    if (!ost->stream_copy) {
-        char *frame_size = NULL;
-
-        MATCH_PER_STREAM_OPT(frame_sizes, str, frame_size, oc, st);
-        if (frame_size && av_parse_video_size(&subtitle_enc->width, &subtitle_enc->height, frame_size) < 0) {
-            av_log(NULL, AV_LOG_FATAL, "Invalid frame size: %s.\n", frame_size);
-            exit_program(1);
-        }
-    }
-
-    return ost;
-}
-
 /* arg format is "output-stream-index:streamid-value". */
 static int opt_streamid(void *optctx, const char *opt, const char *arg)
 {
@@ -2101,14 +2058,12 @@ static int open_output_file(OptionsContext *o, const char *filename)
             switch (ofilter->type) {
             case AVMEDIA_TYPE_VIDEO:    o->video_disable    = 1; break;
             case AVMEDIA_TYPE_AUDIO:    o->audio_disable    = 1; break;
-            case AVMEDIA_TYPE_SUBTITLE: o->subtitle_disable = 1; break;
             }
             init_output_filter(ofilter, o, oc);
         }
     }
 
     if (!o->nb_stream_maps) {
-        char *subtitle_codec_name = NULL;
         /* pick the "best" stream of each type */
 
         /* video: highest resolution */
@@ -2181,36 +2136,6 @@ static int open_output_file(OptionsContext *o, const char *filename)
                 new_audio_stream(o, oc, idx);
         }
 
-        /* subtitles: pick first */
-        MATCH_PER_TYPE_OPT(codec_names, str, subtitle_codec_name, oc, "s");
-        if (!o->subtitle_disable && (avcodec_find_encoder(oc->oformat->subtitle_codec) || subtitle_codec_name)) {
-            for (i = 0; i < nb_input_streams; i++)
-                if (input_streams[i]->st->codecpar->codec_type == AVMEDIA_TYPE_SUBTITLE) {
-                    AVCodecDescriptor const *input_descriptor =
-                        avcodec_descriptor_get(input_streams[i]->st->codecpar->codec_id);
-                    AVCodecDescriptor const *output_descriptor = NULL;
-                    AVCodec const *output_codec =
-                        avcodec_find_encoder(oc->oformat->subtitle_codec);
-                    int input_props = 0, output_props = 0;
-                    if (input_streams[i]->user_set_discard == AVDISCARD_ALL)
-                        continue;
-                    if (output_codec)
-                        output_descriptor = avcodec_descriptor_get(output_codec->id);
-                    if (input_descriptor)
-                        input_props = input_descriptor->props & (AV_CODEC_PROP_TEXT_SUB | AV_CODEC_PROP_BITMAP_SUB);
-                    if (output_descriptor)
-                        output_props = output_descriptor->props & (AV_CODEC_PROP_TEXT_SUB | AV_CODEC_PROP_BITMAP_SUB);
-                    if (subtitle_codec_name ||
-                        input_props & output_props ||
-                        // Map dvb teletext which has neither property to any output subtitle encoder
-                        input_descriptor && output_descriptor &&
-                        (!input_descriptor->props ||
-                         !output_descriptor->props)) {
-                        new_subtitle_stream(o, oc, i);
-                        break;
-                    }
-                }
-        }
         /* Data only if codec id match */
         if (!o->data_disable ) {
             enum AVCodecID codec_id = av_guess_codec(oc->oformat, NULL, filename, NULL, AVMEDIA_TYPE_DATA);
@@ -2260,8 +2185,6 @@ loop_end:
                            map->file_index, map->stream_index);
                     exit_program(1);
                 }
-                if(o->subtitle_disable && ist->st->codecpar->codec_type == AVMEDIA_TYPE_SUBTITLE)
-                    continue;
                 if(o->   audio_disable && ist->st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO)
                     continue;
                 if(o->   video_disable && ist->st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO)
@@ -2273,7 +2196,6 @@ loop_end:
                 switch (ist->st->codecpar->codec_type) {
                 case AVMEDIA_TYPE_VIDEO:      ost = new_video_stream     (o, oc, src_idx); break;
                 case AVMEDIA_TYPE_AUDIO:      ost = new_audio_stream     (o, oc, src_idx); break;
-                case AVMEDIA_TYPE_SUBTITLE:   ost = new_subtitle_stream  (o, oc, src_idx); break;
                 case AVMEDIA_TYPE_DATA:       ost = new_data_stream      (o, oc, src_idx); break;
                 case AVMEDIA_TYPE_ATTACHMENT: ost = new_attachment_stream(o, oc, src_idx); break;
                 case AVMEDIA_TYPE_UNKNOWN:
@@ -3238,8 +3160,6 @@ const OptionDef options[] = {
     { "atag",           OPT_AUDIO | HAS_ARG  | OPT_EXPERT | OPT_PERFILE |
                         OPT_OUTPUT,                                                { .func_arg = opt_old2new },
         "force audio tag/fourcc", "fourcc/tag" },
-    { "vol",            OPT_AUDIO | HAS_ARG  | OPT_INT,                            { &audio_volume },
-        "change audio volume (256=normal)" , "volume" },
     { "sample_fmt",     OPT_AUDIO | HAS_ARG  | OPT_EXPERT | OPT_SPEC |
                         OPT_STRING | OPT_INPUT | OPT_OUTPUT,                       { .off = OFFSET(sample_fmts) },
         "set sample format", "format" },
@@ -3250,14 +3170,6 @@ const OptionDef options[] = {
       "set the maximum number of channels to try to guess the channel layout" },
 
     /* subtitle options */
-    { "sn",     OPT_SUBTITLE | OPT_BOOL | OPT_OFFSET | OPT_INPUT | OPT_OUTPUT, { .off = OFFSET(subtitle_disable) },
-        "disable subtitle" },
-    { "scodec", OPT_SUBTITLE | HAS_ARG  | OPT_PERFILE | OPT_INPUT | OPT_OUTPUT, { .func_arg = opt_subtitle_codec },
-        "force subtitle codec ('copy' to copy stream)", "codec" },
-    { "stag",   OPT_SUBTITLE | HAS_ARG  | OPT_EXPERT  | OPT_PERFILE | OPT_OUTPUT, { .func_arg = opt_old2new }
-        , "force subtitle tag/fourcc", "fourcc/tag" },
-    { "fix_sub_duration", OPT_BOOL | OPT_EXPERT | OPT_SUBTITLE | OPT_SPEC | OPT_INPUT, { .off = OFFSET(fix_sub_duration) },
-        "fix subtitles duration" },
     { "canvas_size", OPT_SUBTITLE | HAS_ARG | OPT_STRING | OPT_SPEC | OPT_INPUT, { .off = OFFSET(canvas_sizes) },
         "set canvas size (WxH or abbreviation)", "size" },
 

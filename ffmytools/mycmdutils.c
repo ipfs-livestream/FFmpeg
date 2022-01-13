@@ -1016,10 +1016,6 @@ AVDictionary *filter_codec_opts(AVDictionary *opts, enum AVCodecID codec_id,
         prefix  = 'a';
         flags  |= AV_OPT_FLAG_AUDIO_PARAM;
         break;
-    case AVMEDIA_TYPE_SUBTITLE:
-        prefix  = 's';
-        flags  |= AV_OPT_FLAG_SUBTITLE_PARAM;
-        break;
     }
 
     while (t = av_dict_get(opts, "", t, AV_DICT_IGNORE_SUFFIX)) {

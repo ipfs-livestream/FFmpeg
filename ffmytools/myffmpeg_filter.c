@@ -242,11 +242,6 @@ static void init_input_filter(FilterGraph *fg, AVFilterInOut *in)
         s = input_files[file_idx]->ctx;
 
         for (i = 0; i < s->nb_streams; i++) {
-            enum AVMediaType stream_type = s->streams[i]->codecpar->codec_type;
-            if (stream_type != type &&
-                !(stream_type == AVMEDIA_TYPE_SUBTITLE &&
-                  type == AVMEDIA_TYPE_VIDEO /* sub2video hack */))
-                continue;
             if (check_stream_specifier(s, s->streams[i], *p == ':' ? p + 1 : p) == 1) {
                 st = s->streams[i];
                 break;
@@ -647,53 +642,6 @@ void check_filter_outputs(void)
     }
 }
 
-static int sub2video_prepare(InputStream *ist, InputFilter *ifilter)
-{
-    AVFormatContext *avf = input_files[ist->file_index]->ctx;
-    int i, w, h;
-
-    /* Compute the size of the canvas for the subtitles stream.
-       If the subtitles codecpar has set a size, use it. Otherwise use the
-       maximum dimensions of the video streams in the same file. */
-    w = ifilter->width;
-    h = ifilter->height;
-    if (!(w && h)) {
-        for (i = 0; i < avf->nb_streams; i++) {
-            if (avf->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
-                w = FFMAX(w, avf->streams[i]->codecpar->width);
-                h = FFMAX(h, avf->streams[i]->codecpar->height);
-            }
-        }
-        if (!(w && h)) {
-            w = FFMAX(w, 720);
-            h = FFMAX(h, 576);
-        }
-        av_log(avf, AV_LOG_INFO, "sub2video: using %dx%d canvas\n", w, h);
-    }
-    ist->sub2video.w = ifilter->width  = w;
-    ist->sub2video.h = ifilter->height = h;
-
-    ifilter->width  = ist->dec_ctx->width  ? ist->dec_ctx->width  : ist->sub2video.w;
-    ifilter->height = ist->dec_ctx->height ? ist->dec_ctx->height : ist->sub2video.h;
-
-    /* rectangles are AV_PIX_FMT_PAL8, but we have no guarantee that the
-       palettes for all rectangles are identical or compatible */
-    ifilter->format = AV_PIX_FMT_RGB32;
-
-    ist->sub2video.frame = av_frame_alloc();
-    if (!ist->sub2video.frame)
-        return AVERROR(ENOMEM);
-    ist->sub2video.last_pts = INT64_MIN;
-    ist->sub2video.end_pts  = INT64_MIN;
-
-    /* sub2video structure has been (re-)initialized.
-       Mark it as such so that the system will be
-       initialized with the first received heartbeat. */
-    ist->sub2video.initialize = 1;
-
-    return 0;
-}
-
 static int configure_input_video_filter(FilterGraph *fg, InputFilter *ifilter,
                                         AVFilterInOut *in)
 {
@@ -725,12 +673,6 @@ static int configure_input_video_filter(FilterGraph *fg, InputFilter *ifilter,
 
     if (!fr.num)
         fr = av_guess_frame_rate(input_files[ist->file_index]->ctx, ist->st, NULL);
-
-    if (ist->dec_ctx->codec_type == AVMEDIA_TYPE_SUBTITLE) {
-        ret = sub2video_prepare(ist, ifilter);
-        if (ret < 0)
-            goto fail;
-    }
 
     sar = ifilter->sample_aspect_ratio;
     if(!sar.den)
@@ -887,29 +829,6 @@ static int configure_input_audio_filter(FilterGraph *fg, InputFilter *ifilter,
         if (!fg->reconfiguration)
             av_strlcatf(args, sizeof(args), ":first_pts=0");
         AUTO_INSERT_FILTER_INPUT("-async", "aresample", args);
-    }
-
-//     if (ost->audio_channels_mapped) {
-//         int i;
-//         AVBPrint pan_buf;
-//         av_bprint_init(&pan_buf, 256, 8192);
-//         av_bprintf(&pan_buf, "0x%"PRIx64,
-//                    av_get_default_channel_layout(ost->audio_channels_mapped));
-//         for (i = 0; i < ost->audio_channels_mapped; i++)
-//             if (ost->audio_channels_map[i] != -1)
-//                 av_bprintf(&pan_buf, ":c%d=c%d", i, ost->audio_channels_map[i]);
-//         AUTO_INSERT_FILTER_INPUT("-map_channel", "pan", pan_buf.str);
-//         av_bprint_finalize(&pan_buf, NULL);
-//     }
-
-    if (audio_volume != 256) {
-        char args[256];
-
-        av_log(NULL, AV_LOG_WARNING, "-vol has been deprecated. Use the volume "
-               "audio filter instead.\n");
-
-        snprintf(args, sizeof(args), "%f", audio_volume / 256.);
-        AUTO_INSERT_FILTER_INPUT("-vol", "volume", args);
     }
 
     snprintf(name, sizeof(name), "trim for input stream %d:%d", ist->file_index, ist->st->index);
@@ -1097,19 +1016,6 @@ int configure_filtergraph(FilterGraph *fg)
             ret = av_buffersrc_add_frame(fg->inputs[i]->filter, NULL);
             if (ret < 0)
                 goto fail;
-        }
-    }
-
-    /* process queued up subtitle packets */
-    for (i = 0; i < fg->nb_inputs; i++) {
-        InputStream *ist = fg->inputs[i]->ist;
-        if (ist->sub2video.sub_queue && ist->sub2video.frame) {
-            while (av_fifo_size(ist->sub2video.sub_queue)) {
-                AVSubtitle tmp;
-                av_fifo_generic_read(ist->sub2video.sub_queue, &tmp, sizeof(tmp), NULL);
-                sub2video_update(ist, INT64_MIN, &tmp);
-                avsubtitle_free(&tmp);
-            }
         }
     }
 
